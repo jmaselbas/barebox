@@ -20,6 +20,12 @@ config HAS_CACHE
 	  Drivers that depend on a cache implementation can depend on this
 	  config, so that you don't get a compilation error.
 
+config HAS_ARCH_SJLJ
+	bool
+	help
+	  Architecture has support implemented for
+	  setjmp()/longjmp()/initjmp()
+
 config HAS_DMA
 	bool
 	help
