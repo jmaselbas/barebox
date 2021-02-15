@@ -12,9 +12,12 @@
 #include <clock.h>
 #include <work.h>
 #include <slice.h>
+#include <coroutine.h>
 
 static LIST_HEAD(poller_list);
-int poller_active;
+struct poller_struct *active_poller;
+
+static __coroutine poller_thread(void *data);
 
 int poller_register(struct poller_struct *poller, const char *name)
 {
@@ -22,6 +25,10 @@ int poller_register(struct poller_struct *poller, const char *name)
 		return -EBUSY;
 
 	poller->name = xstrdup(name);
+
+	if (IS_ENABLED(CONFIG_POLLER_YIELD))
+		poller->coroutine = coroutine_alloc(poller_thread, poller);
+
 	list_add_tail(&poller->list, &poller_list);
 	poller->registered = 1;
 
@@ -36,6 +43,7 @@ int poller_unregister(struct poller_struct *poller)
 
 	list_del(&poller->list);
 	poller->registered = 0;
+	coroutine_free(poller->coroutine);
 	free(poller->name);
 
 	return 0;
@@ -78,7 +86,6 @@ int poller_async_cancel(struct poller_async *pa)
  * @pa		the poller to be used
  * @delay	The delay in nanoseconds
  * @fn		The function to call
- * @ctx		context pointer passed to the function
  *
  * This calls the passed function after a delay of delay_ns. Returns
  * a pointer which can be used as a cookie to cancel a scheduled call.
@@ -107,12 +114,59 @@ int poller_async_unregister(struct poller_async *pa)
 	return poller_unregister(&pa->poller);
 }
 
+static void __poller_yield(struct poller_struct *poller)
+{
+	if (WARN_ON(!poller))
+		return;
+
+	coroutine_yield(poller->coroutine);
+}
+
+#ifdef CONFIG_POLLER_YIELD
+/* No stub for this function. That way we catch wrong Kconfig dependencies
+ * that enable code that uses poller_yield() unconditionally
+ */
+void poller_yield(void)
+{
+	return __poller_yield(active_poller);
+}
+#endif
+
+int poller_reschedule(void)
+{
+	if (!in_poller())
+		return ctrlc() ? -ERESTARTSYS : 0;
+
+	__poller_yield(active_poller);
+	return 0;
+}
+
+static __coroutine poller_thread(void *data)
+{
+	struct poller_struct *poller = data;
+
+	for (;;) {
+		poller->func(poller);
+		__poller_yield(poller);
+	}
+}
+
+static void poller_schedule(struct poller_struct *poller)
+{
+	if (!IS_ENABLED(CONFIG_POLLER_YIELD)) {
+		poller->func(poller);
+		return;
+	}
+
+	coroutine_schedule(poller->coroutine);
+}
+
 void poller_call(void)
 {
 	struct poller_struct *poller, *tmp;
 	bool run_workqueues = !slice_acquired(&command_slice);
 
-	if (poller_active)
+	if (active_poller)
 		return;
 
 	command_slice_acquire();
@@ -120,13 +174,13 @@ void poller_call(void)
 	if (run_workqueues)
 		wq_do_all_works();
 
-	poller_active = 1;
+	list_for_each_entry_safe(poller, tmp, &poller_list, list) {
+		active_poller = poller;
+		poller_schedule(poller);
+	}
 
-	list_for_each_entry_safe(poller, tmp, &poller_list, list)
-		poller->func(poller);
-
+	active_poller = NULL;
 	command_slice_release();
-	poller_active = 0;
 }
 
 #if defined CONFIG_CMD_POLLER

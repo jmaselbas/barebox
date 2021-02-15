@@ -1,6 +1,8 @@
 #ifndef __SLICE_H
 #define __SLICE_H
 
+#include <poller.h>
+
 enum slice_action {
 	SLICE_ACQUIRE = 1,
 	SLICE_RELEASE = -1,
@@ -33,11 +35,9 @@ extern struct slice command_slice;
 void command_slice_acquire(void);
 void command_slice_release(void);
 
-extern int poller_active;
-
 #ifdef CONFIG_POLLER
 #define assert_command_context() ({    \
-	WARN_ONCE(poller_active, "%s called in poller\n", __func__); \
+	WARN_ONCE(in_poller(), "%s called in poller\n", __func__); \
 })
 #else
 #define assert_command_context() do { } while (0)

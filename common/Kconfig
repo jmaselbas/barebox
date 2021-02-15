@@ -960,6 +960,17 @@ config BAREBOXCRC32_TARGET
 
 config POLLER
 	bool "generic polling infrastructure"
+	help
+	 Pollers are routines that are called within delay loops and the console
+	 idle to asynchronously execute actions, like checking for link up or
+	 feeding a watchdog.
+
+config POLLER_YIELD
+	bool "Yielding poller support (coroutines)"
+	depends on HAS_ARCH_SJLJ
+	help
+	  Pollers may call poller_yield(), which saves context of the current
+	  poller for later resumption. This is often called green threads.
 
 config STATE
 	bool "generic state infrastructure"
