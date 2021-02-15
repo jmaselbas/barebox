@@ -36,8 +36,14 @@ void command_slice_acquire(void);
 void command_slice_release(void);
 
 #ifdef CONFIG_POLLER
-#define assert_command_context() ({    \
-	WARN_ONCE(in_poller(), "%s called in poller\n", __func__); \
+#define assert_command_context() ({                                       \
+	while (in_poller() && !slice_acquired(&command_slice)) {          \
+		if (!IS_ENABLED(CONFIG_POLLER_YIELD)) {                   \
+			WARN_ONCE(1, "%s called in poller\n", __func__);  \
+			break;                                            \
+		}                                                         \
+		poller_yield();                                           \
+	}                                                                 \
 })
 #else
 #define assert_command_context() do { } while (0)
