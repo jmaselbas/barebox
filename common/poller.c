@@ -187,8 +187,9 @@ void poller_call(void)
 
 #include <command.h>
 #include <getopt.h>
+#include <clock.h>
 
-static void poller_time(void)
+static int poller_time(void)
 {
 	uint64_t start = get_time_ns();
 	int i = 0;
@@ -202,7 +203,7 @@ static void poller_time(void)
 	while (!is_timeout(start, SECOND))
 		i++;
 
-	printf("%d poller calls in 1s\n", i);
+	return i;
 }
 
 static void poller_info(void)
@@ -226,20 +227,48 @@ BAREBOX_CMD_HELP_TEXT("")
 BAREBOX_CMD_HELP_TEXT("Options:")
 BAREBOX_CMD_HELP_OPT ("-i", "Print information about registered pollers")
 BAREBOX_CMD_HELP_OPT ("-t", "measure how many pollers we run in 1s")
+BAREBOX_CMD_HELP_OPT ("-c", "run coroutine test")
 BAREBOX_CMD_HELP_END
+
+static void poller_coroutine(struct poller_struct *poller)
+{
+	volatile u64 start;
+	volatile int i = 0;
+
+	for (;;) {
+		start = get_time_ns();
+		while (!is_timeout_non_interruptible(start, 225 * MSECOND))
+			__poller_yield(active_poller);
+
+		printf("Poller yield #%d\n", ++i);
+	}
+}
 
 static int do_poller(int argc, char *argv[])
 {
-	int opt;
+	struct poller_struct poller = {};
+	int ret, opt;
 
-	while ((opt = getopt(argc, argv, "it")) > 0) {
+	while ((opt = getopt(argc, argv, "itc")) > 0) {
 		switch (opt) {
 		case 'i':
 			poller_info();
 			return 0;
+		case 'c':
+			if (!IS_ENABLED(CONFIG_POLLER_YIELD)) {
+				printf("CONFIG_POLLER_YIELD support not compiled in\n");
+				return -ENOSYS;
+			}
+
+			poller.func = poller_coroutine;
+			ret = poller_register(&poller, "poller-coroutine-test");
+			if (ret)
+				return ret;
+
+			/* fallthrough */
 		case 't':
-			poller_time();
-			return 0;
+			printf("%d poller calls in 1s\n", poller_time());
+			return poller.func ? poller_unregister(&poller) : 0;
 		}
 	}
 
