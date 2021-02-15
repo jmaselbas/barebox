@@ -16,8 +16,17 @@ int usb_multi_register(struct f_multi_opts *opts);
 void usb_multi_unregister(void);
 void usb_multi_opts_release(struct f_multi_opts *opts);
 
-int usbgadget_register(bool dfu, const char *dfu_opts,
-		       bool fastboot, const char *fastboot_opts,
-		       bool acm, bool export_bbu);
+#define USBGADGET_EXPORT_BBU	(1 << 0)
+#define USBGADGET_ACM		(1 << 1)
+#define USBGADGET_DFU		(1 << 2)
+#define USBGADGET_FASTBOOT	(1 << 3)
+
+struct usbgadget_funcs {
+	int flags;
+	const char *fastboot_opts;
+	const char *dfu_opts;
+};
+
+int usbgadget_register(const struct usbgadget_funcs *funcs);
 
 #endif /* __USB_GADGET_MULTI_H */

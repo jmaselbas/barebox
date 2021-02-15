@@ -32,14 +32,20 @@ static struct file_list *parse(const char *files)
 	return list;
 }
 
-int usbgadget_register(bool dfu, const char *dfu_opts,
-		       bool fastboot, const char *fastboot_opts,
-		       bool acm, bool export_bbu)
+int usbgadget_register(const struct usbgadget_funcs *funcs)
 {
 	int ret;
+	int flags = funcs->flags;
 	struct device_d *dev;
 	struct f_multi_opts *opts;
 	const char *fastboot_partitions = get_fastboot_partitions();
+	const char *dfu_opts = funcs->dfu_opts;
+	const char *fastboot_opts = funcs->fastboot_opts;
+	bool dfu, fastboot, acm;
+
+	dfu = flags & USBGADGET_DFU;
+	fastboot = flags & USBGADGET_FASTBOOT;
+	acm = flags & USBGADGET_ACM;
 
 	if (dfu && !dfu_opts && dfu_function && *dfu_function)
 		dfu_opts = dfu_function;
@@ -66,7 +72,7 @@ int usbgadget_register(bool dfu, const char *dfu_opts,
 
 	if (fastboot_opts) {
 		opts->fastboot_opts.files = parse(fastboot_opts);
-		opts->fastboot_opts.export_bbu = export_bbu;
+		opts->fastboot_opts.export_bbu = flags & USBGADGET_EXPORT_BBU;
 	}
 
 	if (dfu_opts)
@@ -93,18 +99,23 @@ int usbgadget_register(bool dfu, const char *dfu_opts,
 
 static int usbgadget_autostart_set(struct param_d *param, void *ctx)
 {
+	struct usbgadget_funcs funcs = {};
 	static bool started;
-	bool fastboot_bbu = get_fastboot_bbu();
-	int err;
 
 	if (!IS_ENABLED(CONFIG_USB_GADGET_AUTOSTART) || !autostart || started)
 		return 0;
 
-	err = usbgadget_register(true, NULL, true, NULL, acm, fastboot_bbu);
-	if (!err)
-		started = true;
+	if (get_fastboot_bbu())
+		funcs.flags |= USBGADGET_EXPORT_BBU;
 
-	return err;
+	if (acm)
+		funcs.flags |= USBGADGET_ACM;
+
+	funcs.flags |= USBGADGET_DFU | USBGADGET_FASTBOOT;
+
+	started = 1;
+
+	return usbgadget_register(&funcs);
 }
 
 static int usbgadget_globalvars_init(void)
